@@ -12,7 +12,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/dashboard")
-@CrossOrigin(origins = "*")
 public class DashboardController {
 
     private final DashboardService dashboardService;

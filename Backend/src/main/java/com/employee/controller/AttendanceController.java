@@ -9,7 +9,6 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/attendance")
-@CrossOrigin(origins = "*")
 public class AttendanceController {
 
     private final AttendanceService attendanceService;

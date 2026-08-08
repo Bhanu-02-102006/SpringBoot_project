@@ -18,7 +18,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/reports")
-@CrossOrigin(origins = "*")
 public class ReportsController {
 
     private final EmployeeRepository employeeRepository;
