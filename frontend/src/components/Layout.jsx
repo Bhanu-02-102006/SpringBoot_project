@@ -3,6 +3,8 @@ import { Link, useNavigate, useLocation, Outlet } from "react-router-dom";
 import { getPayload } from "./ProtectedRoute";
 import axios from "axios";
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 // Helper to fetch unread notification count
 const getUnreadNotificationCount = () => {
   const token = localStorage.getItem("token");
