@@ -1,4 +1,5 @@
 import axios from "axios";
+const API_URL = import.meta.env.VITE_API_URL;
 
 const getToken = () => {
     return localStorage.getItem("token");
@@ -19,7 +20,6 @@ export const addEmployee = (employee) =>
 export const updateEmployee = (id, employee) =>
     axios.put(`${API_URL}/${id}`, employee, authHeader());
 
-const API_URL = import.meta.env.VITE_API_URL;
 
 export const deleteEmployee = (id) =>
     axios.delete(`${API_URL}/${id}`, authHeader());
