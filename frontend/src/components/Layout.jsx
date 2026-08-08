@@ -6,7 +6,7 @@ import axios from "axios";
 // Helper to fetch unread notification count
 const getUnreadNotificationCount = () => {
   const token = localStorage.getItem("token");
-  return axios.get("http://localhost:8080/notifications/unread-count", {
+  return axios.get(`${API_URL}/notifications/unread-count`, {
     headers: { Authorization: `Bearer ${token}` }
   });
 };
