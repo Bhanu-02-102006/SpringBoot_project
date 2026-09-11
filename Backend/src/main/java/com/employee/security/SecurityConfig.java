@@ -97,8 +97,8 @@ public CorsConfigurationSource corsConfigurationSource() {
 
     configuration.setAllowedOriginPatterns(List.of(
         "http://localhost:5173",
-        "https://*.vercel.app"
-    ));
+        "https://spring-boot-project-gray.vercel.app"
+));
 
     configuration.setAllowedMethods(List.of(
         "GET",
