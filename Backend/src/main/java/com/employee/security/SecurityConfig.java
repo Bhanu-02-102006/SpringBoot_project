@@ -34,7 +34,7 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
-                .cors(cors -> {})
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.PUT, "/auth/change-password").authenticated()
@@ -92,20 +92,20 @@ public class SecurityConfig {
     }
 
    @Bean
-public CorsConfigurationSource corsConfigurationSource() {
+public UrlBasedCorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
 
-    configuration.setAllowedOriginPatterns(List.of(
-        "http://localhost:5173",
-        "https://spring-boot-project-gray.vercel.app"
-));
+    configuration.setAllowedOrigins(List.of(
+            "http://localhost:5173",
+            "https://spring-boot-project-gray.vercel.app"
+    ));
 
     configuration.setAllowedMethods(List.of(
-        "GET",
-        "POST",
-        "PUT",
-        "DELETE",
-        "OPTIONS"
+            "GET",
+            "POST",
+            "PUT",
+            "DELETE",
+            "OPTIONS"
     ));
 
     configuration.setAllowedHeaders(List.of("*"));
@@ -117,5 +117,4 @@ public CorsConfigurationSource corsConfigurationSource() {
     source.registerCorsConfiguration("/**", configuration);
 
     return source;
-}
 }
