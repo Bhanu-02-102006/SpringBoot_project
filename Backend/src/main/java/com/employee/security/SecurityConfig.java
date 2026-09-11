@@ -16,7 +16,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
@@ -32,28 +31,119 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+
         http
+                // Disable CSRF because this is a stateless REST API
                 .csrf(csrf -> csrf.disable())
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+
+                // Enable CORS and explicitly use our CORS configuration
+                .cors(cors ->
+                        cors.configurationSource(corsConfigurationSource())
+                )
+
+                // JWT authentication is stateless
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(
+                                SessionCreationPolicy.STATELESS
+                        )
+                )
+
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.PUT, "/auth/change-password").authenticated()
-                        .requestMatchers("/auth/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/employees/me").hasAnyRole("MANAGER", "EMPLOYEE")
-                        .requestMatchers(HttpMethod.PUT, "/employees/me/profile").hasAnyRole("MANAGER", "EMPLOYEE")
-                        .requestMatchers(HttpMethod.GET, "/employees/{id}").hasAnyRole("MANAGER", "EMPLOYEE")
-                        .requestMatchers(HttpMethod.PUT, "/employees/{id}").hasAnyRole("MANAGER", "EMPLOYEE")
-                        .requestMatchers("/employees", "/employees/**").hasRole("MANAGER")
-                        .requestMatchers("/attendance/checkin", "/attendance/checkout", "/attendance/my-history", "/attendance/today").hasAnyRole("MANAGER", "EMPLOYEE")
-                        .requestMatchers("/attendance/all", "/attendance/search").hasRole("MANAGER")
-                        .requestMatchers(HttpMethod.POST, "/leaves").hasAnyRole("MANAGER", "EMPLOYEE")
-                        .requestMatchers("/leaves/my-requests").hasAnyRole("MANAGER", "EMPLOYEE")
-                        .requestMatchers("/leaves/pending", "/leaves/all", "/leaves/**").hasRole("MANAGER")
-                        .requestMatchers("/notifications/**").hasAnyRole("MANAGER", "EMPLOYEE")
-                        .requestMatchers("/reports/**").hasRole("MANAGER")
-                        .requestMatchers("/dashboard/**").hasRole("MANAGER")
+
+                        // Allow browser CORS preflight requests
+                        .requestMatchers(
+                                HttpMethod.OPTIONS,
+                                "/**"
+                        ).permitAll()
+
+                        // Change password requires authentication
+                        .requestMatchers(
+                                HttpMethod.PUT,
+                                "/auth/change-password"
+                        ).authenticated()
+
+                        // Login, registration, forgot password, etc.
+                        .requestMatchers(
+                                "/auth/**"
+                        ).permitAll()
+
+                        // Employee profile
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/employees/me"
+                        ).hasAnyRole("MANAGER", "EMPLOYEE")
+
+                        .requestMatchers(
+                                HttpMethod.PUT,
+                                "/employees/me/profile"
+                        ).hasAnyRole("MANAGER", "EMPLOYEE")
+
+                        // Employee by ID
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/employees/{id}"
+                        ).hasAnyRole("MANAGER", "EMPLOYEE")
+
+                        .requestMatchers(
+                                HttpMethod.PUT,
+                                "/employees/{id}"
+                        ).hasAnyRole("MANAGER", "EMPLOYEE")
+
+                        // Employee management - Manager only
+                        .requestMatchers(
+                                "/employees",
+                                "/employees/**"
+                        ).hasRole("MANAGER")
+
+                        // Attendance
+                        .requestMatchers(
+                                "/attendance/checkin",
+                                "/attendance/checkout",
+                                "/attendance/my-history",
+                                "/attendance/today"
+                        ).hasAnyRole("MANAGER", "EMPLOYEE")
+
+                        .requestMatchers(
+                                "/attendance/all",
+                                "/attendance/search"
+                        ).hasRole("MANAGER")
+
+                        // Leave requests
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/leaves"
+                        ).hasAnyRole("MANAGER", "EMPLOYEE")
+
+                        .requestMatchers(
+                                "/leaves/my-requests"
+                        ).hasAnyRole("MANAGER", "EMPLOYEE")
+
+                        .requestMatchers(
+                                "/leaves/pending",
+                                "/leaves/all",
+                                "/leaves/**"
+                        ).hasRole("MANAGER")
+
+                        // Notifications
+                        .requestMatchers(
+                                "/notifications/**"
+                        ).hasAnyRole("MANAGER", "EMPLOYEE")
+
+                        // Reports - Manager only
+                        .requestMatchers(
+                                "/reports/**"
+                        ).hasRole("MANAGER")
+
+                        // Dashboard - Manager only
+                        .requestMatchers(
+                                "/dashboard/**"
+                        ).hasRole("MANAGER")
+
+                        // Everything else requires authentication
                         .anyRequest().authenticated()
                 )
+
+                // JWT filter
                 .addFilterBefore(
                         jwtAuthenticationFilter,
                         UsernamePasswordAuthenticationFilter.class
@@ -62,59 +152,105 @@ public class SecurityConfig {
         return http.build();
     }
 
+    /**
+     * Loads users from the database for Spring Security authentication.
+     */
     @Bean
-    public UserDetailsService userDetailsService(UserRepository userRepository) {
+    public UserDetailsService userDetailsService(
+            UserRepository userRepository
+    ) {
+
         return username -> {
+
             User user = userRepository.findByUsername(username)
-                    .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
+                    .orElseThrow(() ->
+                            new UsernameNotFoundException(
+                                    "User not found: " + username
+                            )
+                    );
 
             String role = user.getRole();
+
+            // Ensure Spring Security receives ROLE_MANAGER / ROLE_EMPLOYEE
             if (role != null && !role.startsWith("ROLE_")) {
                 role = "ROLE_" + role;
             }
-            
-            return org.springframework.security.core.userdetails.User.builder()
+
+            return org.springframework.security.core.userdetails.User
+                    .builder()
                     .username(user.getUsername())
                     .password(user.getPassword())
-                    .authorities(role != null ? role : "ROLE_EMPLOYEE")
+                    .authorities(
+                            role != null
+                                    ? role
+                                    : "ROLE_EMPLOYEE"
+                    )
                     .build();
         };
     }
 
+    /**
+     * Password encoder used for storing passwords securely.
+     */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
+    /**
+     * Authentication manager used by the authentication service.
+     */
     @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+    public AuthenticationManager authenticationManager(
+            AuthenticationConfiguration config
+    ) throws Exception {
+
         return config.getAuthenticationManager();
     }
 
-   @Bean
-public UrlBasedCorsConfigurationSource corsConfigurationSource() {
-    CorsConfiguration configuration = new CorsConfiguration();
+    /**
+     * Global CORS configuration.
+     *
+     * Allows:
+     * - Local Vite development
+     * - Production Vercel frontend
+     */
+    @Bean
+    public UrlBasedCorsConfigurationSource corsConfigurationSource() {
 
-    configuration.setAllowedOrigins(List.of(
-            "http://localhost:5173",
-            "https://spring-boot-project-gray.vercel.app"
-    ));
+        CorsConfiguration configuration =
+                new CorsConfiguration();
 
-    configuration.setAllowedMethods(List.of(
-            "GET",
-            "POST",
-            "PUT",
-            "DELETE",
-            "OPTIONS"
-    ));
+        // Allowed frontend origins
+        configuration.setAllowedOrigins(List.of(
+                "http://localhost:5173",
+                "https://spring-boot-project-gray.vercel.app"
+        ));
 
-    configuration.setAllowedHeaders(List.of("*"));
-    configuration.setAllowCredentials(true);
+        // Allowed HTTP methods
+        configuration.setAllowedMethods(List.of(
+                "GET",
+                "POST",
+                "PUT",
+                "DELETE",
+                "OPTIONS"
+        ));
 
-    UrlBasedCorsConfigurationSource source =
-            new UrlBasedCorsConfigurationSource();
+        // Allow all request headers
+        configuration.setAllowedHeaders(List.of("*"));
 
-    source.registerCorsConfiguration("/**", configuration);
+        // Allow credentials such as Authorization headers/cookies
+        configuration.setAllowCredentials(true);
 
-    return source;
+        // Register configuration for every endpoint
+        UrlBasedCorsConfigurationSource source =
+                new UrlBasedCorsConfigurationSource();
+
+        source.registerCorsConfiguration(
+                "/**",
+                configuration
+        );
+
+        return source;
+    }
 }
