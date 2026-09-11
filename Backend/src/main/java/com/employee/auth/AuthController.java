@@ -15,9 +15,9 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public String register(@RequestBody com.employee.dto.RegisterRequest request) {
+    public org.springframework.http.ResponseEntity<?> register(@RequestBody com.employee.dto.RegisterRequest request) {
         authService.registerEmployee(request);
-        return "Registration successful";
+        return org.springframework.http.ResponseEntity.ok(java.util.Map.of("message", "Registration successful"));
     }
 
     @PostMapping("/login")

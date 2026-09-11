@@ -2,10 +2,12 @@ package com.employee.security;
 
 import com.employee.entity.User;
 import com.employee.repository.UserRepository;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -34,8 +36,8 @@ public class SecurityConfig {
                 // Disable CSRF for stateless REST API
                 .csrf(csrf -> csrf.disable())
 
-                // CORS is handled by CorsConfig.java
-                .cors(cors -> {})
+                // Enable CORS using CorsConfigurationSource bean from CorsConfig
+                .cors(Customizer.withDefaults())
 
                 // JWT authentication is stateless
                 .sessionManagement(session ->
@@ -191,5 +193,14 @@ public class SecurityConfig {
             AuthenticationConfiguration config
     ) throws Exception {
         return config.getAuthenticationManager();
+    }
+
+    @Bean
+    public FilterRegistrationBean<JwtAuthenticationFilter> jwtAuthenticationFilterRegistration(
+            JwtAuthenticationFilter filter
+    ) {
+        FilterRegistrationBean<JwtAuthenticationFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 }

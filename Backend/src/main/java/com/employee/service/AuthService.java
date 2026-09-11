@@ -6,6 +6,7 @@ import com.employee.repository.UserRepository;
 import com.employee.repository.EmployeeRepository;
 import com.employee.security.JwtService;
 import com.employee.dto.RegisterRequest;
+import com.employee.exception.EmailAlreadyExistsException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -48,10 +49,10 @@ public class AuthService {
     @Transactional
     public void registerEmployee(RegisterRequest request) {
         if (userRepository.findByUsername(request.getEmail()).isPresent()) {
-            throw new RuntimeException("Email already registered in system.");
+            throw new EmailAlreadyExistsException("Email already registered in system.");
         }
         if (employeeRepository.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("Employee profile with this email already exists.");
+            throw new EmailAlreadyExistsException("Employee profile with this email already exists.");
         }
 
         // Create User record
