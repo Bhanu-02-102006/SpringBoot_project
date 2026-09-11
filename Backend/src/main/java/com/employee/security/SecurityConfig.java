@@ -15,10 +15,6 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-
-import java.util.List;
 
 @Configuration
 public class SecurityConfig {
@@ -30,16 +26,16 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(
+            HttpSecurity http
+    ) throws Exception {
 
         http
-                // Disable CSRF because this is a stateless REST API
+                // Disable CSRF for stateless REST API
                 .csrf(csrf -> csrf.disable())
 
-                // Enable CORS and explicitly use our CORS configuration
-                .cors(cors ->
-                        cors.configurationSource(corsConfigurationSource())
-                )
+                // CORS is handled by CorsConfig.java
+                .cors(cors -> {})
 
                 // JWT authentication is stateless
                 .sessionManagement(session ->
@@ -50,19 +46,19 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(auth -> auth
 
-                        // Allow browser CORS preflight requests
+                        // CORS preflight
                         .requestMatchers(
                                 HttpMethod.OPTIONS,
                                 "/**"
                         ).permitAll()
 
-                        // Change password requires authentication
+                        // Change password
                         .requestMatchers(
                                 HttpMethod.PUT,
                                 "/auth/change-password"
                         ).authenticated()
 
-                        // Login, registration, forgot password, etc.
+                        // Login / Register / Forgot password
                         .requestMatchers(
                                 "/auth/**"
                         ).permitAll()
@@ -89,7 +85,7 @@ public class SecurityConfig {
                                 "/employees/{id}"
                         ).hasAnyRole("MANAGER", "EMPLOYEE")
 
-                        // Employee management - Manager only
+                        // Employee management
                         .requestMatchers(
                                 "/employees",
                                 "/employees/**"
@@ -129,17 +125,17 @@ public class SecurityConfig {
                                 "/notifications/**"
                         ).hasAnyRole("MANAGER", "EMPLOYEE")
 
-                        // Reports - Manager only
+                        // Reports
                         .requestMatchers(
                                 "/reports/**"
                         ).hasRole("MANAGER")
 
-                        // Dashboard - Manager only
+                        // Dashboard
                         .requestMatchers(
                                 "/dashboard/**"
                         ).hasRole("MANAGER")
 
-                        // Everything else requires authentication
+                        // Everything else
                         .anyRequest().authenticated()
                 )
 
@@ -152,9 +148,6 @@ public class SecurityConfig {
         return http.build();
     }
 
-    /**
-     * Loads users from the database for Spring Security authentication.
-     */
     @Bean
     public UserDetailsService userDetailsService(
             UserRepository userRepository
@@ -171,7 +164,6 @@ public class SecurityConfig {
 
             String role = user.getRole();
 
-            // Ensure Spring Security receives ROLE_MANAGER / ROLE_EMPLOYEE
             if (role != null && !role.startsWith("ROLE_")) {
                 role = "ROLE_" + role;
             }
@@ -189,68 +181,15 @@ public class SecurityConfig {
         };
     }
 
-    /**
-     * Password encoder used for storing passwords securely.
-     */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
-    /**
-     * Authentication manager used by the authentication service.
-     */
     @Bean
     public AuthenticationManager authenticationManager(
             AuthenticationConfiguration config
     ) throws Exception {
-
         return config.getAuthenticationManager();
-    }
-
-    /**
-     * Global CORS configuration.
-     *
-     * Allows:
-     * - Local Vite development
-     * - Production Vercel frontend
-     */
-    @Bean
-    public UrlBasedCorsConfigurationSource corsConfigurationSource() {
-
-        CorsConfiguration configuration =
-                new CorsConfiguration();
-
-        // Allowed frontend origins
-        configuration.setAllowedOrigins(List.of(
-                "http://localhost:5173",
-                "https://spring-boot-project-gray.vercel.app"
-        ));
-
-        // Allowed HTTP methods
-        configuration.setAllowedMethods(List.of(
-                "GET",
-                "POST",
-                "PUT",
-                "DELETE",
-                "OPTIONS"
-        ));
-
-        // Allow all request headers
-        configuration.setAllowedHeaders(List.of("*"));
-
-        // Allow credentials such as Authorization headers/cookies
-        configuration.setAllowCredentials(true);
-
-        // Register configuration for every endpoint
-        UrlBasedCorsConfigurationSource source =
-                new UrlBasedCorsConfigurationSource();
-
-        source.registerCorsConfiguration(
-                "/**",
-                configuration
-        );
-
-        return source;
     }
 }
