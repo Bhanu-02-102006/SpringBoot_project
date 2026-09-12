@@ -9,6 +9,7 @@ import org.springframework.data.domain.Page;
 
 import java.util.List;
 
+@CrossOrigin(origins = "https://spring-boot-project-gray.vercel.app")
 @RestController
 @RequestMapping("/employees")
 public class EmployeeController {
@@ -27,13 +28,13 @@ public class EmployeeController {
 
     // Get All Employees
     @GetMapping
-    public List<Employee> getEmployees() {
+    public List getEmployees() {
         return employeeService.getAllEmployees();
     }
 
     // Search Employee
     @GetMapping("/search")
-    public List<Employee> searchEmployees(@RequestParam String name) {
+    public List searchEmployees(@RequestParam String name) {
         return employeeService.searchEmployees(name);
     }
 
@@ -57,7 +58,7 @@ public class EmployeeController {
     }
 
     @GetMapping("/page")
-    public Page<Employee> getEmployeesPage(
+    public Page getEmployeesPage(
             @RequestParam int page,
             @RequestParam int size) {
 
@@ -65,7 +66,7 @@ public class EmployeeController {
     }
 
     @GetMapping("/sort")
-    public List<Employee> sortEmployees() {
+    public List sortEmployees() {
         return employeeService.sortEmployees();
     }
 

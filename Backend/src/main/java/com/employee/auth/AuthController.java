@@ -4,6 +4,7 @@ import com.employee.entity.User;
 import com.employee.service.AuthService;
 import org.springframework.web.bind.annotation.*;
 
+@CrossOrigin(origins = "https://spring-boot-project-gray.vercel.app")
 @RestController
 @RequestMapping("/auth")
 public class AuthController {
@@ -15,13 +16,13 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public org.springframework.http.ResponseEntity<?> register(@RequestBody com.employee.dto.RegisterRequest request) {
+    public org.springframework.http.ResponseEntity register(@RequestBody com.employee.dto.RegisterRequest request) {
         authService.registerEmployee(request);
         return org.springframework.http.ResponseEntity.ok(java.util.Map.of("message", "Registration successful"));
     }
 
     @PostMapping("/login")
-    public org.springframework.http.ResponseEntity<?> login(@RequestBody AuthRequest request) {
+    public org.springframework.http.ResponseEntity login(@RequestBody AuthRequest request) {
         try {
             String token = authService.login(
                     request.getUsername(),
@@ -36,7 +37,7 @@ public class AuthController {
 
     @PutMapping("/change-password")
     public String changePassword(java.security.Principal principal,
-                                 @RequestBody java.util.Map<String, String> request) {
+                                 @RequestBody java.util.Map request) {
         String currentPassword = request.get("currentPassword");
         String newPassword = request.get("newPassword");
         authService.changePassword(principal.getName(), currentPassword, newPassword);
