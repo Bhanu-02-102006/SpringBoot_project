@@ -65,6 +65,15 @@ public class SecurityConfig {
                                 "/auth/**"
                         ).permitAll()
 
+                        // Render health check
+                        .requestMatchers("/health").permitAll()
+
+                        // Employee profile
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/employees/me"
+                        ).hasAnyRole("MANAGER", "EMPLOYEE")
+
                         // Employee profile
                         .requestMatchers(
                                 HttpMethod.GET,
