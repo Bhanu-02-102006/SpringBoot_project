@@ -38,8 +38,10 @@ public class AuthController {
     @PutMapping("/change-password")
     public String changePassword(java.security.Principal principal,
                                  @RequestBody java.util.Map request) {
-        String currentPassword = request.get("currentPassword");
-        String newPassword = request.get("newPassword");
+        // Explicitly cast the Object to a String
+        String currentPassword = (String) request.get("currentPassword");
+        String newPassword = (String) request.get("newPassword");
+        
         authService.changePassword(principal.getName(), currentPassword, newPassword);
         return "Password changed successfully";
     }
