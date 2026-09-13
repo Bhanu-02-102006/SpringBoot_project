@@ -34,32 +34,80 @@ ChartJS.register(
   ArcElement
 );
 
+/*
+ * Safely convert an API response into an array.
+ *
+ * Depending on the backend/controller, the response may be:
+ *
+ * 1. [ ... ]
+ * 2. { data: [ ... ] }
+ * 3. { content: [ ... ] }
+ * 4. { leaves: [ ... ] }
+ * 5. { employees: [ ... ] }
+ * 6. null / undefined
+ *
+ * This prevents errors such as:
+ * "myLeaves.slice(...).map is not a function"
+ */
+const toArray = (data, possibleKeys = []) => {
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  if (data && Array.isArray(data.data)) {
+    return data.data;
+  }
+
+  if (data && Array.isArray(data.content)) {
+    return data.content;
+  }
+
+  for (const key of possibleKeys) {
+    if (data && Array.isArray(data[key])) {
+      return data[key];
+    }
+  }
+
+  return [];
+};
+
 function Dashboard() {
   const navigate = useNavigate();
+
   const token = localStorage.getItem("token");
   const payload = token ? getPayload(token) : null;
+
   const isManager = payload?.role === "ROLE_MANAGER";
 
   // Manager state
   const [stats, setStats] = useState({
     totalEmployees: 0,
     departmentCount: 0,
-    averageSalary: 0.0,
-    highestSalary: 0.0
+    averageSalary: 0,
+    highestSalary: 0
   });
+
   const [deptData, setDeptData] = useState({});
   const [salaryData, setSalaryData] = useState([]);
   const [recentEmployees, setRecentEmployees] = useState([]);
-  const [loading, setLoading] = useState(true);
 
   // Employee state
   const [profile, setProfile] = useState(null);
   const [attendanceToday, setAttendanceToday] = useState(null);
   const [myLeaves, setMyLeaves] = useState([]);
 
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
+    if (!token) {
+      navigate("/login");
+      return;
+    }
+
     if (isManager) {
-      // Fetch manager data
+      // ============================
+      // MANAGER DASHBOARD
+      // ============================
       Promise.all([
         getDashboardStats(),
         getDashboardDepartments(),
@@ -67,76 +115,164 @@ function Dashboard() {
         getRecentEmployees()
       ])
         .then(([statsRes, deptsRes, salaryRes, recentRes]) => {
-          setStats(statsRes.data);
-          setDeptData(deptsRes.data);
-          setSalaryData(salaryRes.data);
-          setRecentEmployees(recentRes.data);
+          // Stats
+          const statsData = statsRes?.data;
+
+          setStats({
+            totalEmployees: Number(statsData?.totalEmployees ?? 0),
+            departmentCount: Number(statsData?.departmentCount ?? 0),
+            averageSalary: Number(statsData?.averageSalary ?? 0),
+            highestSalary: Number(statsData?.highestSalary ?? 0)
+          });
+
+          // Department data
+          const departmentData = deptsRes?.data;
+
+          if (
+            departmentData &&
+            typeof departmentData === "object" &&
+            !Array.isArray(departmentData)
+          ) {
+            setDeptData(departmentData);
+          } else {
+            setDeptData({});
+          }
+
+          // Salary data
+          setSalaryData(
+            toArray(salaryRes?.data, ["salaries", "employees"])
+          );
+
+          // Recent employees
+          setRecentEmployees(
+            toArray(recentRes?.data, ["employees", "content"])
+          );
+
           setLoading(false);
         })
         .catch((err) => {
-          console.log(err);
+          console.error("Failed to load manager dashboard:", err);
+
+          setStats({
+            totalEmployees: 0,
+            departmentCount: 0,
+            averageSalary: 0,
+            highestSalary: 0
+          });
+
+          setDeptData({});
+          setSalaryData([]);
+          setRecentEmployees([]);
+
           setLoading(false);
         });
     } else {
-      // Fetch employee dashboard details
+      // ============================
+      // EMPLOYEE DASHBOARD
+      // ============================
       Promise.all([
         getMyProfile(),
         getTodayAttendanceStatus(),
         getMyLeaves()
       ])
         .then(([profileRes, attendanceRes, leavesRes]) => {
-          setProfile(profileRes.data);
-          setAttendanceToday(attendanceRes.data || null);
-          setMyLeaves(leavesRes.data);
+          // Profile
+          setProfile(profileRes?.data ?? null);
+
+          // Attendance
+          setAttendanceToday(attendanceRes?.data ?? null);
+
+          // IMPORTANT:
+          // Always make sure myLeaves is an array.
+          const leavesData = toArray(
+            leavesRes?.data,
+            ["leaves", "leaveRequests", "requests", "content"]
+          );
+
+          console.log("My leaves API response:", leavesRes?.data);
+          console.log("Normalized myLeaves:", leavesData);
+
+          setMyLeaves(leavesData);
+
           setLoading(false);
         })
         .catch((err) => {
-          console.log(err);
+          console.error("Failed to load employee dashboard:", err);
+
+          setProfile(null);
+          setAttendanceToday(null);
+          setMyLeaves([]);
+
           setLoading(false);
         });
     }
-  }, [isManager]);
+  }, [isManager, token, navigate]);
 
+  // ============================
+  // EXPORT EMPLOYEES CSV
+  // ============================
   const handleExportCSV = () => {
     getEmployees()
       .then((response) => {
-        const data = response.data;
+        const data = toArray(response?.data, ["employees", "content"]);
+
         if (data.length === 0) {
           alert("No employees to export");
           return;
         }
-        const headers = ["ID", "Name", "Email", "Salary", "Department", "Phone", "Joining Date"];
+
+        const headers = [
+          "ID",
+          "Name",
+          "Email",
+          "Salary",
+          "Department",
+          "Phone",
+          "Joining Date"
+        ];
+
         const rows = data.map((emp) => [
-          emp.id,
-          `"${emp.name.replace(/"/g, '""')}"`,
-          `"${emp.email.replace(/"/g, '""')}"`,
-          emp.salary,
-          `"${emp.department.replace(/"/g, '""')}"`,
-          `"${(emp.phone || "").replace(/"/g, '""')}"`,
-          `"${(emp.joiningDate || "").replace(/"/g, '""')}"`
+          emp.id ?? "",
+          `"${String(emp.name ?? "").replace(/"/g, '""')}"`,
+          `"${String(emp.email ?? "").replace(/"/g, '""')}"`,
+          emp.salary ?? "",
+          `"${String(emp.department ?? "").replace(/"/g, '""')}"`,
+          `"${String(emp.phone ?? "").replace(/"/g, '""')}"`,
+          `"${String(emp.joiningDate ?? "").replace(/"/g, '""')}"`
         ]);
+
         const csvContent =
           "data:text/csv;charset=utf-8," +
-          [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+          [headers.join(","), ...rows.map((row) => row.join(","))].join(
+            "\n"
+          );
 
         const encodedUri = encodeURI(csvContent);
+
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
         link.setAttribute("download", "employees.csv");
+
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
       })
       .catch((err) => {
-        console.log(err);
+        console.error("Failed to export employees:", err);
         alert("Failed to export employees");
       });
   };
 
+  // ============================
+  // EXPORT PDF / PRINT
+  // ============================
   const handleExportPDF = () => {
     window.print();
   };
 
+  // ============================
+  // LOADING
+  // ============================
   if (loading) {
     return (
       <div className="text-center mt-5">
@@ -147,13 +283,15 @@ function Dashboard() {
     );
   }
 
-  // Chart data for Pie Chart
+  // ============================
+  // PIE CHART DATA
+  // ============================
   const pieChartData = {
-    labels: Object.keys(deptData),
+    labels: Object.keys(deptData || {}),
     datasets: [
       {
         label: "Employees per Department",
-        data: Object.values(deptData),
+        data: Object.values(deptData || {}),
         backgroundColor: [
           "#0d6efd",
           "#198754",
@@ -174,13 +312,17 @@ function Dashboard() {
     ]
   };
 
-  // Chart data for Bar Chart
+  // ============================
+  // BAR CHART DATA
+  // ============================
   const barChartData = {
-    labels: salaryData.map((e) => e.name),
+    labels: salaryData.map((employee) => employee?.name ?? "Unknown"),
     datasets: [
       {
         label: "Salary ($)",
-        data: salaryData.map((e) => e.salary),
+        data: salaryData.map((employee) =>
+          Number(employee?.salary ?? 0)
+        ),
         backgroundColor: "rgba(13, 110, 253, 0.6)",
         borderColor: "#0d6efd",
         borderWidth: 1
@@ -188,13 +330,19 @@ function Dashboard() {
     ]
   };
 
+  // ============================
+  // EMPLOYEE DASHBOARD
+  // ============================
   return (
     <div className="dashboard-container">
       {isManager ? (
+        // ============================================
         // MANAGER VIEW
+        // ============================================
         <div className="manager-dashboard">
           <h2 className="mb-4 fw-bold text-dark">
-            <i className="bi bi-speedometer2 text-primary me-2"></i> HR Operations Dashboard
+            <i className="bi bi-speedometer2 text-primary me-2"></i>
+            HR Operations Dashboard
           </h2>
 
           {/* Stats Cards */}
@@ -203,9 +351,15 @@ function Dashboard() {
               <div className="card shadow-sm border-0 border-start border-primary border-4 py-3 bg-white">
                 <div className="card-body d-flex align-items-center justify-content-between">
                   <div>
-                    <h6 className="text-uppercase text-muted small fw-bold">Total Employees</h6>
-                    <h2 className="fw-bold mb-0 text-primary">{stats.totalEmployees}</h2>
+                    <h6 className="text-uppercase text-muted small fw-bold">
+                      Total Employees
+                    </h6>
+
+                    <h2 className="fw-bold mb-0 text-primary">
+                      {stats.totalEmployees}
+                    </h2>
                   </div>
+
                   <div className="fs-1 text-primary opacity-50">
                     <i className="bi bi-people-fill"></i>
                   </div>
@@ -217,9 +371,15 @@ function Dashboard() {
               <div className="card shadow-sm border-0 border-start border-success border-4 py-3 bg-white">
                 <div className="card-body d-flex align-items-center justify-content-between">
                   <div>
-                    <h6 className="text-uppercase text-muted small fw-bold">Departments</h6>
-                    <h2 className="fw-bold mb-0 text-success">{stats.departmentCount}</h2>
+                    <h6 className="text-uppercase text-muted small fw-bold">
+                      Departments
+                    </h6>
+
+                    <h2 className="fw-bold mb-0 text-success">
+                      {stats.departmentCount}
+                    </h2>
                   </div>
+
                   <div className="fs-1 text-success opacity-50">
                     <i className="bi bi-building"></i>
                   </div>
@@ -231,14 +391,22 @@ function Dashboard() {
               <div className="card shadow-sm border-0 border-start border-warning border-4 py-3 bg-white">
                 <div className="card-body d-flex align-items-center justify-content-between">
                   <div>
-                    <h6 className="text-uppercase text-muted small fw-bold">Average Salary</h6>
+                    <h6 className="text-uppercase text-muted small fw-bold">
+                      Average Salary
+                    </h6>
+
                     <h2 className="fw-bold mb-0 text-warning">
-                      ${stats.averageSalary.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2
-                      })}
+                      $
+                      {Number(stats.averageSalary).toLocaleString(
+                        undefined,
+                        {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
+                        }
+                      )}
                     </h2>
                   </div>
+
                   <div className="fs-1 text-warning opacity-50">
                     <i className="bi bi-cash-stack"></i>
                   </div>
@@ -250,14 +418,22 @@ function Dashboard() {
               <div className="card shadow-sm border-0 border-start border-danger border-4 py-3 bg-white">
                 <div className="card-body d-flex align-items-center justify-content-between">
                   <div>
-                    <h6 className="text-uppercase text-muted small fw-bold">Highest Salary</h6>
+                    <h6 className="text-uppercase text-muted small fw-bold">
+                      Highest Salary
+                    </h6>
+
                     <h2 className="fw-bold mb-0 text-danger">
-                      ${stats.highestSalary.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2
-                      })}
+                      $
+                      {Number(stats.highestSalary).toLocaleString(
+                        undefined,
+                        {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
+                        }
+                      )}
                     </h2>
                   </div>
+
                   <div className="fs-1 text-danger opacity-50">
                     <i className="bi bi-trophy"></i>
                   </div>
@@ -270,10 +446,22 @@ function Dashboard() {
           <div className="row mb-5 g-4">
             <div className="col-md-5">
               <div className="card shadow-sm p-4 border-0 bg-white h-100">
-                <h5 className="card-title fw-bold text-center mb-4">Department Distribution</h5>
-                <div className="d-flex align-items-center justify-content-center" style={{ maxHeight: "300px" }}>
-                  {Object.keys(deptData).length > 0 ? (
-                    <Pie data={pieChartData} options={{ responsive: true, maintainAspectRatio: true }} />
+                <h5 className="card-title fw-bold text-center mb-4">
+                  Department Distribution
+                </h5>
+
+                <div
+                  className="d-flex align-items-center justify-content-center"
+                  style={{ maxHeight: "300px" }}
+                >
+                  {Object.keys(deptData || {}).length > 0 ? (
+                    <Pie
+                      data={pieChartData}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: true
+                      }}
+                    />
                   ) : (
                     <p className="text-muted">No data available</p>
                   )}
@@ -283,7 +471,10 @@ function Dashboard() {
 
             <div className="col-md-7">
               <div className="card shadow-sm p-4 border-0 bg-white h-100">
-                <h5 className="card-title fw-bold text-center mb-4">Salary Distribution</h5>
+                <h5 className="card-title fw-bold text-center mb-4">
+                  Salary Distribution
+                </h5>
+
                 <div style={{ minHeight: "250px" }}>
                   {salaryData.length > 0 ? (
                     <Bar
@@ -295,26 +486,33 @@ function Dashboard() {
                           y: {
                             beginAtZero: true,
                             ticks: {
-                              callback: (value) => "$" + value.toLocaleString()
+                              callback: (value) =>
+                                "$" +
+                                Number(value).toLocaleString()
                             }
                           }
                         }
                       }}
                     />
                   ) : (
-                    <p className="text-muted text-center">No data available</p>
+                    <p className="text-muted text-center">
+                      No data available
+                    </p>
                   )}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Lower Grid: Recent Employees & Quick Actions */}
+          {/* Recent Employees & Quick Actions */}
           <div className="row g-4 mb-5">
             {/* Recent Employees */}
             <div className="col-md-8">
               <div className="card shadow-sm p-4 border-0 bg-white h-100">
-                <h5 className="fw-bold mb-3">Recent Additions</h5>
+                <h5 className="fw-bold mb-3">
+                  Recent Additions
+                </h5>
+
                 <div className="table-responsive">
                   <table className="table table-striped table-hover align-middle">
                     <thead className="table-light">
@@ -325,20 +523,35 @@ function Dashboard() {
                         <th>Salary</th>
                       </tr>
                     </thead>
+
                     <tbody>
                       {recentEmployees.map((emp) => (
-                        <tr key={emp.id}>
-                          <td>{emp.id}</td>
-                          <td className="fw-bold">{emp.name}</td>
-                          <td>
-                            <span className="badge bg-secondary">{emp.department}</span>
+                        <tr key={emp?.id}>
+                          <td>{emp?.id ?? "-"}</td>
+
+                          <td className="fw-bold">
+                            {emp?.name ?? "-"}
                           </td>
-                          <td>${emp.salary.toLocaleString()}</td>
+
+                          <td>
+                            <span className="badge bg-secondary">
+                              {emp?.department ?? "-"}
+                            </span>
+                          </td>
+
+                          <td>
+                            $
+                            {Number(emp?.salary ?? 0).toLocaleString()}
+                          </td>
                         </tr>
                       ))}
+
                       {recentEmployees.length === 0 && (
                         <tr>
-                          <td colSpan="4" className="text-center text-muted">
+                          <td
+                            colSpan="4"
+                            className="text-center text-muted"
+                          >
                             No employees found
                           </td>
                         </tr>
@@ -352,12 +565,22 @@ function Dashboard() {
             {/* Quick Actions */}
             <div className="col-md-4">
               <div className="card shadow-sm p-4 h-100 border-0 bg-white">
-                <h5 className="fw-bold mb-4">Quick Operations</h5>
+                <h5 className="fw-bold mb-4">
+                  Quick Operations
+                </h5>
+
                 <div className="d-grid gap-3">
-                  <button className="btn btn-outline-success py-2.5 fw-bold" onClick={handleExportCSV}>
+                  <button
+                    className="btn btn-outline-success py-2 fw-bold"
+                    onClick={handleExportCSV}
+                  >
                     📥 Export Excel (CSV)
                   </button>
-                  <button className="btn btn-outline-dark py-2.5 fw-bold" onClick={handleExportPDF}>
+
+                  <button
+                    className="btn btn-outline-dark py-2 fw-bold"
+                    onClick={handleExportPDF}
+                  >
                     📄 Export PDF / Print
                   </button>
                 </div>
@@ -366,34 +589,58 @@ function Dashboard() {
           </div>
         </div>
       ) : (
-        // EMPLOYEE VIEW (No charts, welcome card, profile details, leaf status, attendance logs, and holidays)
+        // ============================================
+        // EMPLOYEE VIEW
+        // ============================================
         <div className="employee-dashboard">
           <h2 className="mb-4 fw-bold text-dark">
-            <i className="bi bi-house-door text-primary me-2"></i> Employee Home Dashboard
+            <i className="bi bi-house-door text-primary me-2"></i>
+            Employee Home Dashboard
           </h2>
 
           <div className="row g-4">
-            {/* Left Column: Welcome, profile details & leaves */}
+            {/* Left Column */}
             <div className="col-md-8">
               {/* Welcome Card */}
               <div className="card shadow-sm p-4 border-0 bg-white mb-4 border-start border-primary border-4">
-                <h4 className="fw-bold text-dark mb-1">Welcome back, {profile?.name || "Employee"}!</h4>
-                <p className="text-secondary small mb-0">You are logged in to the TechNova Solutions Employee Portal.</p>
+                <h4 className="fw-bold text-dark mb-1">
+                  Welcome back, {profile?.name || "Employee"}!
+                </h4>
+
+                <p className="text-secondary small mb-0">
+                  You are logged in to the TechNova Solutions
+                  Employee Portal.
+                </p>
               </div>
 
-              {/* Profile Details Card */}
+              {/* Profile Details */}
               <div className="card shadow-sm p-4 border-0 bg-white mb-4">
                 <h5 className="fw-bold text-secondary mb-3">
-                  <i className="bi bi-person-badge text-primary me-2"></i>My Profile Details
+                  <i className="bi bi-person-badge text-primary me-2"></i>
+                  My Profile Details
                 </h5>
+
                 <div className="row align-items-center">
                   <div className="col-sm-4 text-center">
                     <div
                       className="rounded-circle bg-light d-flex align-items-center justify-content-center mx-auto mb-3 shadow-inner"
-                      style={{ width: "110px", height: "110px", border: "3px solid #dee2e6", overflow: "hidden" }}
+                      style={{
+                        width: "110px",
+                        height: "110px",
+                        border: "3px solid #dee2e6",
+                        overflow: "hidden"
+                      }}
                     >
                       {profile?.profilePicture ? (
-                        <img src={profile.profilePicture} alt="Avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        <img
+                          src={profile.profilePicture}
+                          alt="Avatar"
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover"
+                          }}
+                        />
                       ) : (
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
@@ -407,31 +654,58 @@ function Dashboard() {
                         </svg>
                       )}
                     </div>
-                    <h5 className="fw-bold mb-0">{profile?.name || "Jane Doe"}</h5>
-                    <span className="badge bg-info text-dark mb-2">{profile?.department || "Engineering"}</span>
+
+                    <h5 className="fw-bold mb-0">
+                      {profile?.name || "Employee"}
+                    </h5>
+
+                    <span className="badge bg-info text-dark mb-2">
+                      {profile?.department || "Department"}
+                    </span>
                   </div>
+
                   <div className="col-sm-8">
                     <table className="table table-borderless table-sm align-middle small mb-0">
                       <tbody>
                         <tr>
-                          <td className="fw-bold text-muted">Employee ID</td>
+                          <td className="fw-bold text-muted">
+                            Employee ID
+                          </td>
                           <td>{profile?.id || "N/A"}</td>
                         </tr>
+
                         <tr>
-                          <td className="fw-bold text-muted">Email</td>
+                          <td className="fw-bold text-muted">
+                            Email
+                          </td>
                           <td>{profile?.email || "N/A"}</td>
                         </tr>
+
                         <tr>
-                          <td className="fw-bold text-muted">Phone</td>
-                          <td>{profile?.phone || "Not specified"}</td>
+                          <td className="fw-bold text-muted">
+                            Phone
+                          </td>
+                          <td>
+                            {profile?.phone || "Not specified"}
+                          </td>
                         </tr>
+
                         <tr>
-                          <td className="fw-bold text-muted">Address</td>
-                          <td>{profile?.address || "Not specified"}</td>
+                          <td className="fw-bold text-muted">
+                            Address
+                          </td>
+                          <td>
+                            {profile?.address || "Not specified"}
+                          </td>
                         </tr>
+
                         <tr>
-                          <td className="fw-bold text-muted">Joining Date</td>
-                          <td>{profile?.joiningDate || "N/A"}</td>
+                          <td className="fw-bold text-muted">
+                            Joining Date
+                          </td>
+                          <td>
+                            {profile?.joiningDate || "N/A"}
+                          </td>
                         </tr>
                       </tbody>
                     </table>
@@ -439,11 +713,13 @@ function Dashboard() {
                 </div>
               </div>
 
-              {/* My Leave Requests Card */}
+              {/* My Leave Requests */}
               <div className="card shadow-sm p-4 border-0 bg-white">
                 <h5 className="fw-bold text-secondary mb-3">
-                  <i className="bi bi-envelope-paper text-primary me-2"></i>My Leave Status Requests
+                  <i className="bi bi-envelope-paper text-primary me-2"></i>
+                  My Leave Status Requests
                 </h5>
+
                 <div className="table-responsive">
                   <table className="table table-striped align-middle small mb-0">
                     <thead className="table-light">
@@ -454,30 +730,45 @@ function Dashboard() {
                         <th>Comments</th>
                       </tr>
                     </thead>
+
                     <tbody>
                       {myLeaves.slice(0, 3).map((item) => (
-                        <tr key={item.id}>
-                          <td>{item.startDate} to {item.endDate}</td>
-                          <td>{item.leaveType}</td>
+                        <tr key={item?.id}>
+                          <td>
+                            {item?.startDate || "-"} to{" "}
+                            {item?.endDate || "-"}
+                          </td>
+
+                          <td>
+                            {item?.leaveType || "-"}
+                          </td>
+
                           <td>
                             <span
                               className={`badge ${
-                                item.status === "APPROVED"
+                                item?.status === "APPROVED"
                                   ? "bg-success"
-                                  : item.status === "REJECTED"
+                                  : item?.status === "REJECTED"
                                   ? "bg-danger"
                                   : "bg-warning text-dark"
                               }`}
                             >
-                              {item.status}
+                              {item?.status || "PENDING"}
                             </span>
                           </td>
-                          <td>{item.managerComment || "-"}</td>
+
+                          <td>
+                            {item?.managerComment || "-"}
+                          </td>
                         </tr>
                       ))}
+
                       {myLeaves.length === 0 && (
                         <tr>
-                          <td colSpan="4" className="text-center text-muted">
+                          <td
+                            colSpan="4"
+                            className="text-center text-muted"
+                          >
                             No leave applications found.
                           </td>
                         </tr>
@@ -488,68 +779,128 @@ function Dashboard() {
               </div>
             </div>
 
-            {/* Right Column: Attendance Status & Holidays */}
+            {/* Right Column */}
             <div className="col-md-4">
-              {/* Today's Attendance Check-in State */}
+              {/* Attendance */}
               <div className="card shadow-sm p-4 border-0 bg-white text-center mb-4">
-                <h5 className="fw-bold text-secondary mb-3">My Attendance Status</h5>
+                <h5 className="fw-bold text-secondary mb-3">
+                  My Attendance Status
+                </h5>
+
                 <div className="fs-1 text-primary mb-3">
                   <i className="bi bi-calendar2-check-fill text-success"></i>
                 </div>
+
                 {attendanceToday ? (
                   <div className="p-3 bg-light rounded text-start mb-3">
-                    <div className="mb-1 text-sm">
-                      <strong>Check In:</strong> {new Date(attendanceToday.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    <div className="mb-1">
+                      <strong>Check In:</strong>{" "}
+                      {attendanceToday.checkInTime
+                        ? new Date(
+                            attendanceToday.checkInTime
+                          ).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit"
+                          })
+                        : "-"}
                     </div>
+
                     {attendanceToday.checkOutTime ? (
-                      <div className="text-sm">
-                        <strong>Check Out:</strong> {new Date(attendanceToday.checkOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      <div>
+                        <strong>Check Out:</strong>{" "}
+                        {new Date(
+                          attendanceToday.checkOutTime
+                        ).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit"
+                        })}
                       </div>
                     ) : (
-                      <span className="badge bg-success p-1 text-sm mt-1">Checked In Today</span>
+                      <span className="badge bg-success p-1 mt-1">
+                        Checked In Today
+                      </span>
                     )}
                   </div>
                 ) : (
-                  <p className="text-muted mb-4 small">You have not clocked check-in today.</p>
+                  <p className="text-muted mb-4 small">
+                    You have not clocked check-in today.
+                  </p>
                 )}
-                <Link to="/attendance" className="btn btn-primary w-100 py-2.5 fw-bold shadow-sm">
+
+                <Link
+                  to="/attendance"
+                  className="btn btn-primary w-100 py-2 fw-bold shadow-sm"
+                >
                   Go to Attendance Panel
                 </Link>
               </div>
 
-              {/* Upcoming Holidays Panel */}
+              {/* Holidays */}
               <div className="card shadow-sm p-4 border-0 bg-white">
                 <h5 className="fw-bold text-secondary mb-3">
-                  <i className="bi bi-calendar-event text-danger me-2"></i>Upcoming Holidays
+                  <i className="bi bi-calendar-event text-danger me-2"></i>
+                  Upcoming Holidays
                 </h5>
+
                 <ul className="list-group list-group-flush text-start small">
-                  <li className="list-group-item px-0 py-2.5 d-flex justify-content-between align-items-center">
+                  <li className="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
                     <div>
-                      <strong className="text-dark">New Year's Day</strong>
-                      <span className="d-block text-muted text-xs">Friday</span>
+                      <strong className="text-dark">
+                        New Year's Day
+                      </strong>
+                      <span className="d-block text-muted">
+                        Thursday
+                      </span>
                     </div>
-                    <span className="badge bg-secondary rounded-pill">Jan 1, 2026</span>
+
+                    <span className="badge bg-secondary rounded-pill">
+                      Jan 1, 2026
+                    </span>
                   </li>
-                  <li className="list-group-item px-0 py-2.5 d-flex justify-content-between align-items-center">
+
+                  <li className="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
                     <div>
-                      <strong className="text-dark">Good Friday</strong>
-                      <span className="d-block text-muted text-xs">Friday</span>
+                      <strong className="text-dark">
+                        Good Friday
+                      </strong>
+                      <span className="d-block text-muted">
+                        Friday
+                      </span>
                     </div>
-                    <span className="badge bg-secondary rounded-pill">Apr 3, 2026</span>
+
+                    <span className="badge bg-secondary rounded-pill">
+                      Apr 3, 2026
+                    </span>
                   </li>
-                  <li className="list-group-item px-0 py-2.5 d-flex justify-content-between align-items-center">
+
+                  <li className="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
                     <div>
-                      <strong className="text-dark">Memorial Day</strong>
-                      <span className="d-block text-muted text-xs">Monday</span>
+                      <strong className="text-dark">
+                        Memorial Day
+                      </strong>
+                      <span className="d-block text-muted">
+                        Monday
+                      </span>
                     </div>
-                    <span className="badge bg-secondary rounded-pill">aug 10, 2026</span>
+
+                    <span className="badge bg-secondary rounded-pill">
+                      Aug 10, 2026
+                    </span>
                   </li>
-                  <li className="list-group-item px-0 py-2.5 d-flex justify-content-between align-items-center">
+
+                  <li className="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
                     <div>
-                      <strong className="text-dark">Independence Day</strong>
-                      <span className="d-block text-muted text-xs">Saturday</span>
+                      <strong className="text-dark">
+                        Independence Day
+                      </strong>
+                      <span className="d-block text-muted">
+                        Saturday
+                      </span>
                     </div>
-                    <span className="badge bg-secondary rounded-pill">aug 15, 2026</span>
+
+                    <span className="badge bg-secondary rounded-pill">
+                      Aug 15, 2026
+                    </span>
                   </li>
                 </ul>
               </div>
